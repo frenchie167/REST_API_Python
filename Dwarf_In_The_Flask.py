@@ -1,17 +1,46 @@
 
 import json
+import argparse
 from flask import Flask, jsonify, request
 from datetime import datetime
 import uuid
+from faker import Faker
 
 app = Flask(__name__)
+fake = Faker('ru_RU')
 
-with open('users.json', 'r', encoding='utf-8') as f:
-    users_data = json.load(f)
+parser = argparse.ArgumentParser(description='Flask приложение в разных режимах работы.')
+parser.add_argument('--mode', type=str, default='file', choices=['file, random'], help='Режим работы: "file" - данные из файла, "random" - генерация случайных данных')
+args = parser.parse_args()
+app.config['MODE'] = args.mode
 
+users_data = []
+if app.config['MODE'] == 'file':
+    with open('users.json', 'r', encoding='utf-8') as f:
+        users_data = json.load(f)
+
+def generate_random_user(user_id=None):
+    if user_id is None:
+        user_id = fake.uuid4()
+    return {
+        "id": user_id,
+        "first_name": fake.first_name(),
+        "last_name": fake.last_name(),
+        "email": fake.email(),
+        "registration_date": fake.date_between(start_date='-5y').isoformat(),
+        "is_active": fake.boolean(chance_of_getting_true=75),
+        "address": fake.address().replace('\n', ', '),
+        "phone_number": fake.phone_number()
+    }
 
 @app.route('/users', methods=['GET'])
 def user_id():
+    if app.config['MODE'] == 'random':
+        user_id = request.args.get("id")
+        if user_id:
+            return jsonify(generate_random_user(user_id))
+        return jsonify([generate_random_user() for _ in range(100)])
+            
     user_id = request.args.get("id")
     if user_id is None:
         return jsonify(users_data)
@@ -22,6 +51,10 @@ def user_id():
 
 @app.route('/users', methods=['POST'])
 def create_user():
+    if app.config['MODE'] == 'random':
+        new_user = generate_random_user()
+        return jsonify(new_user), 201
+
     new_user = request.get_json()
     if not all(key in new_user for key in ['is_active', 'first_name', 'last_name', 'email', 'address', 'phone_number']):
         return jsonify({"error": "Bad request"}), 400
@@ -36,6 +69,13 @@ def create_user():
 
 @app.route('/users', methods=['PUT'])
 def update_user():
+    if app.config['MODE'] == 'random':
+        updated_data = request.get_json()
+        if 'id' not in updated_user:
+            return jsonify({"error": "User ID is required"}), 400
+        updated_user = generate_random_user(updated_data['id'])
+        return jsonify(updated_user), 200
+
     updated_user = request.get_json()
     if 'id' not in updated_user:
         return jsonify({"error": "User ID is required"}), 400
@@ -58,6 +98,9 @@ def update_user():
 
 @app.route('/users', methods=['DELETE'])
 def delete_user():
+    if app.config['MODE'] == 'random':
+        return '', 204
+
     user_id = request.args.get("id")
     if user_id is None:
         return jsonify({"error":"User not found"}), 404
